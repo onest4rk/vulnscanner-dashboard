@@ -43,8 +43,22 @@ Then open **http://localhost:3000** and sign in with:
 
 - Node.js 20+
 - PostgreSQL 16+
-- Nmap (for scan execution)
+- **Nmap** (required for real scan execution)
 - npm or yarn
+
+### Installing Nmap
+
+**Windows:** Download from https://nmap.org/download.html and install. Add the install path (e.g. `C:\Program Files\Nmap`) to your system PATH, or set `NMAP_BINARY` in `.env` to the full path:
+```
+NMAP_BINARY="C:\Program Files\Nmap\nmap.exe"
+```
+
+**Linux/macOS:** Install via your package manager:
+```bash
+sudo apt install nmap           # Debian/Ubuntu
+sudo dnf install nmap           # Fedora
+brew install nmap               # macOS
+```
 
 ### Setup
 
@@ -63,15 +77,27 @@ npx prisma db push
 
 # Seed demo data
 npm run db:seed
+```
 
-# Start the dev server
+### Running
+
+You need **two terminal windows**:
+
+```bash
+# Terminal 1 — Web UI + API (Next.js dev server)
 npm run dev
+```
 
-# In another terminal, start the scan worker
+```bash
+# Terminal 2 — Scan worker (polls for pending jobs, runs real nmap)
 npm run worker
+```
 
-# Optionally start the scheduler
-npm run scheduler
+The worker polls every 5 seconds for pending scan jobs. Create a target + trigger a scan from the dashboard, and the worker will execute nmap against it automatically.
+
+Also available:
+```bash
+npm run scheduler   # Optional: cron-based scan scheduler
 ```
 
 ## Project Structure
