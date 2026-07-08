@@ -1,0 +1,301 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  ANALYST
+  VIEWER
+}
+
+enum ScanStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum Severity {
+  NONE
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum Environment {
+  DEV
+  STAGING
+  PRODUCTION
+}
+
+enum FindingStatus {
+  OPEN
+  IN_PROGRESS
+  REMEDIATED
+  ACCEPTED_RISK
+  FALSE_POSITIVE
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      Role     @default(VIEWER)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  scanTargets    ScanTarget[]
+  scanJobs       ScanJob[]
+  auditLogs      AuditLog[]
+  userSettings   UserSettings?
+  reportSnapshots ReportSnapshot[]
+
+  @@index([email])
+  @@index([role])
+}
+
+model ScanTarget {
+  id            String      @id @default(uuid())
+  name          String
+  target        String
+  environment   Environment @default(DEV)
+  owner         String
+  tags          String      @default("")
+  notes         String      @default("")
+  scanFrequency String      @default("")
+  enabled       Boolean     @default(true)
+  deletedAt     DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  userId   String
+  user     User      @relation(fields: [userId], references: [id])
+  groupId  String?
+  group    AssetGroup? @relation(fields: [groupId], references: [id])
+  scanJobs   ScanJob[]
+  targetTags TargetTag[]
+
+  @@index([userId])
+  @@index([groupId])
+  @@index([enabled])
+  @@index([deletedAt])
+}
+
+model AssetGroup {
+  id        String   @id @default(uuid())
+  name      String
+  description String @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  targets ScanTarget[]
+}
+
+model ScannerConfig {
+  id        String   @id @default(uuid())
+  name      String   @default("nmap")
+  engine    String   @default("nmap")
+  binaryPath String  @default("/usr/bin/nmap")
+  args      String   @default("-sV -sC -O")
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  scanJobs ScanJob[]
+}
+
+model ScanJob {
+  id        String     @id @default(uuid())
+  cronExpr  String     @default("")
+  scheduled Boolean    @default(true)
+  status    ScanStatus @default(PENDING)
+  priority  Int        @default(0)
+  retryCount Int       @default(0)
+  maxRetries Int       @default(3)
+  concurrencyGroup String @default("default")
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  targetId     String
+  target       ScanTarget     @relation(fields: [targetId], references: [id])
+  scannerId    String?
+  scanner      ScannerConfig? @relation(fields: [scannerId], references: [id])
+  userId       String
+  user         User           @relation(fields: [userId], references: [id])
+  scanRuns     ScanRun[]
+  scheduleLogs ScheduleLog[]
+
+  @@index([targetId])
+  @@index([status])
+  @@index([scheduled])
+}
+
+model ScanRun {
+  id         String     @id @default(uuid())
+  status     ScanStatus @default(PENDING)
+  startedAt  DateTime?
+  completedAt DateTime?
+  duration   Int?
+  rawOutput  String     @default("")
+  exitCode   Int?
+  errorLog   String     @default("")
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  jobId      String
+  job        ScanJob    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  hosts      HostResult[]
+  findings   Finding[]
+
+  @@index([jobId])
+  @@index([status])
+}
+
+model HostResult {
+  id        String   @id @default(uuid())
+  ip        String
+  hostname  String   @default("")
+  status    String   @default("up")
+  osGuess   String   @default("")
+  createdAt DateTime @default(now())
+
+  scanRunId String
+  scanRun   ScanRun   @relation(fields: [scanRunId], references: [id], onDelete: Cascade)
+  ports     PortResult[]
+
+  @@index([scanRunId])
+  @@index([ip])
+}
+
+model PortResult {
+  id       String @id @default(uuid())
+  port     Int
+  protocol String @default("tcp")
+  state    String @default("open")
+  service  String @default("")
+  banner   String @default("")
+  version  String @default("")
+
+  hostId String
+  host   HostResult @relation(fields: [hostId], references: [id], onDelete: Cascade)
+
+  @@index([hostId])
+  @@index([port])
+  @@index([service])
+}
+
+model Finding {
+  id          String        @id @default(uuid())
+  title       String
+  description String        @default("")
+  severity    Severity      @default(MEDIUM)
+  cvss        Float?
+  status      FindingStatus @default(OPEN)
+  remediation String        @default("")
+  pluginId    String        @default("")
+  pluginName  String        @default("")
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  scanRunId String
+  scanRun   ScanRun         @relation(fields: [scanRunId], references: [id], onDelete: Cascade)
+  history   FindingHistory[]
+
+  @@index([scanRunId])
+  @@index([severity])
+  @@index([status])
+}
+
+model FindingHistory {
+  id          String        @id @default(uuid())
+  status      FindingStatus @default(OPEN)
+  description String        @default("")
+  changedBy   String        @default("")
+  createdAt   DateTime      @default(now())
+
+  findingId String
+  finding   Finding @relation(fields: [findingId], references: [id], onDelete: Cascade)
+
+  @@index([findingId])
+}
+
+model ReportSnapshot {
+  id        String   @id @default(uuid())
+  name      String
+  data      String
+  format    String   @default("json")
+  createdAt DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  action    String
+  entity    String
+  entityId  String   @default("")
+  details   String   @default("")
+  ipAddress String   @default("")
+  createdAt DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model Tag {
+  id         String      @id @default(uuid())
+  name       String      @unique
+  color      String      @default("#6366f1")
+  targetTags TargetTag[]
+}
+
+model TargetTag {
+  targetId String
+  tagId    String
+  target   ScanTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  tag      Tag        @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([targetId, tagId])
+}
+
+model UserSettings {
+  id        String   @id @default(uuid())
+  theme     String   @default("dark")
+  pageSize  Int      @default(25)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+}
+
+model ScheduleLog {
+  id        String   @id @default(uuid())
+  invokedAt DateTime @default(now())
+  duration  Int?
+  exitCode  Int?
+  output    String   @default("")
+  error     String   @default("")
+
+  jobId String
+  job   ScanJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
+  @@index([invokedAt])
+}

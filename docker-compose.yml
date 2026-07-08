@@ -1,0 +1,74 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: vulndb
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: vulnuser
+      POSTGRES_PASSWORD: vulnpass
+      POSTGRES_DB: vulndb
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vulnuser -d vulndb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vulnapp
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: "postgresql://vulnuser:vulnpass@db:5432/vulndb?schema=public"
+      JWT_SECRET: "${JWT_SECRET:-change-this-to-a-random-secret-at-least-32-chars}"
+      JWT_EXPIRES_IN: "8h"
+      NEXT_PUBLIC_APP_URL: "http://localhost:3000"
+      SCAN_CONCURRENCY_LIMIT: "2"
+      SCAN_ALLOWED_RANGES: "${SCAN_ALLOWED_RANGES:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - scan-output:/app/scan-output
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    container_name: vulnworker
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: "postgresql://vulnuser:vulnpass@db:5432/vulndb?schema=public"
+      JWT_SECRET: "${JWT_SECRET:-change-this-to-a-random-secret-at-least-32-chars}"
+      SCAN_CONCURRENCY_LIMIT: "2"
+      SCAN_ALLOWED_RANGES: "${SCAN_ALLOWED_RANGES:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - scan-output:/app/scan-output
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.scheduler
+    container_name: vulnscheduler
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: "postgresql://vulnuser:vulnpass@db:5432/vulndb?schema=public"
+      JWT_SECRET: "${JWT_SECRET:-change-this-to-a-random-secret-at-least-32-chars}"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  scan-output:
